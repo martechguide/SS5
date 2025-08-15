@@ -1,0 +1,15 @@
+pdf-viewer-plugin/
+├── assets/
+│   ├── css/
+│   │   └── pdf-viewer.css
+│   ├── js/
+│   │   └── pdf-viewer.js
+│   └── pdfjs/ (PDF.js library)
+├── uploads/ (PDF storage)
+├── admin/
+│   └── pdf-admin.php
+├── includes/
+│   ├── pdf-shortcode.php
+│   └── pdf-functions.php
+├── pdf-viewer.php (main plugin file)
+└── readme.txt

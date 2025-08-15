@@ -1,0 +1,1602 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { storage } from "./storage";
+import { setupAuth, isAuthenticated } from "./replitAuth";
+import { z } from "zod";
+import { extractFileMetadata, generateThumbnailUrl } from "./fileMetadata";
+import { 
+  insertBatchSchema, 
+  insertCourseSchema,
+  insertSubjectSchema, 
+  insertVideoSchema,
+  insertWhitelistedEmailSchema,
+  insertUserProgressSchema,
+  insertMultiPlatformVideoSchema,
+  insertPptBatchSchema,
+  insertPptCourseSchema,
+  insertPptSubjectSchema,
+  insertPptFileSchema
+} from "@shared/schema";
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Auth middleware - TEMPORARILY DISABLED FOR TESTING
+  // await setupAuth(app);
+
+  // Mock authentication middleware for development
+  const mockAuthMiddleware = (req: any, res: any, next: any) => {
+    req.user = {
+      claims: {
+        sub: 'test-user-123'
+      }
+    };
+    req.isAuthenticated = () => true;
+    next();
+  };
+
+  // Auth routes - Mock user for testing
+  app.get('/api/auth/user', async (req: any, res) => {
+    try {
+      const mockUser = {
+        id: 'test-user-123',
+        email: 'test@example.com',
+        firstName: 'Test',
+        lastName: 'User',
+        profileImageUrl: null
+      };
+      res.json(mockUser);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+
+
+  // Batch routes
+  app.get("/api/batches/:batchId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const { batchId } = req.params;
+      const batch = await storage.getBatch(batchId);
+      
+      if (!batch) {
+        return res.status(404).json({ message: "Batch not found" });
+      }
+      
+      res.json(batch);
+    } catch (error) {
+      console.error("Error fetching batch:", error);
+      res.status(500).json({ message: "Failed to fetch batch" });
+    }
+  });
+
+  app.get("/api/batches", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const batches = await storage.getBatches();
+      res.json(batches);
+    } catch (error) {
+      console.error("Error fetching batches:", error);
+      res.status(500).json({ message: "Failed to fetch batches" });
+    }
+  });
+
+  app.post("/api/batches", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const batchData = insertBatchSchema.parse(req.body);
+      const batch = await storage.createBatch(batchData);
+      res.json(batch);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid batch data", errors: error.errors });
+      }
+      console.error("Error creating batch:", error);
+      res.status(500).json({ message: "Failed to create batch" });
+    }
+  });
+
+  app.patch("/api/batches/:batchId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { batchId } = req.params;
+      const batchData = insertBatchSchema.partial().parse(req.body);
+      const batch = await storage.updateBatch(batchId, batchData);
+      res.json(batch);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid batch data", errors: error.errors });
+      }
+      console.error("Error updating batch:", error);
+      res.status(500).json({ message: "Failed to update batch" });
+    }
+  });
+
+  app.delete("/api/batches/:batchId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { batchId } = req.params;
+      await storage.deleteBatch(batchId);
+      res.json({ message: "Batch deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting batch:", error);
+      res.status(500).json({ message: "Failed to delete batch" });
+    }
+  });
+
+  // Course routes  
+  app.get("/api/batches/:batchId/courses", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { batchId } = req.params;
+      const courses = await storage.getCoursesByBatch(batchId);
+      res.json(courses);
+    } catch (error) {
+      console.error("Error fetching courses:", error);
+      res.status(500).json({ message: "Failed to fetch courses" });
+    }
+  });
+
+  app.post("/api/batches/:batchId/courses", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { batchId } = req.params;
+      const courseData = insertCourseSchema.parse({
+        ...req.body,
+        batchId
+      });
+      const course = await storage.createCourse(courseData);
+      res.json(course);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid course data", errors: error.errors });
+      }
+      console.error("Error creating course:", error);
+      res.status(500).json({ message: "Failed to create course" });
+    }
+  });
+
+  app.patch("/api/courses/:courseId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { courseId } = req.params;
+      const courseData = insertCourseSchema.partial().parse(req.body);
+      const course = await storage.updateCourse(courseId, courseData);
+      res.json(course);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid course data", errors: error.errors });
+      }
+      console.error("Error updating course:", error);
+      res.status(500).json({ message: "Failed to update course" });
+    }
+  });
+
+  app.delete("/api/courses/:courseId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { courseId } = req.params;
+      await storage.deleteCourse(courseId);
+      res.json({ message: "Course deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting course:", error);
+      res.status(500).json({ message: "Failed to delete course" });
+    }
+  });
+
+  app.get("/api/courses/:courseId/subjects", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { courseId } = req.params;
+      const subjects = await storage.getSubjectsByCourse(courseId);
+      res.json(subjects);
+    } catch (error) {
+      console.error("Error fetching subjects:", error);
+      res.status(500).json({ message: "Failed to fetch subjects" });
+    }
+  });
+
+  app.post("/api/courses/:courseId/subjects", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { courseId } = req.params;
+      // Get course to ensure batchId is available
+      const course = await storage.getCourse(courseId);
+      if (!course) {
+        return res.status(404).json({ message: "Course not found" });
+      }
+      
+      const subjectData = insertSubjectSchema.parse({
+        ...req.body,
+        batchId: course.batchId,
+        courseId
+      });
+      const subject = await storage.createSubject(subjectData);
+      res.json(subject);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid subject data", errors: error.errors });
+      }
+      console.error("Error creating subject:", error);
+      res.status(500).json({ message: "Failed to create subject" });
+    }
+  });
+
+  // Subject routes
+  app.get("/api/subjects/:subjectId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const { subjectId } = req.params;
+      const subject = await storage.getSubject(subjectId);
+      
+      if (!subject) {
+        return res.status(404).json({ message: "Subject not found" });
+      }
+      
+      res.json(subject);
+    } catch (error) {
+      console.error("Error fetching subject:", error);
+      res.status(500).json({ message: "Failed to fetch subject" });
+    }
+  });
+
+  app.get("/api/batches/:batchId/subjects", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const { batchId } = req.params;
+      const subjects = await storage.getSubjectsByBatch(batchId);
+      res.json(subjects);
+    } catch (error) {
+      console.error("Error fetching subjects:", error);
+      res.status(500).json({ message: "Failed to fetch subjects" });
+    }
+  });
+
+  app.post("/api/batches/:batchId/subjects", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { batchId } = req.params;
+      const subjectData = insertSubjectSchema.parse({
+        ...req.body,
+        batchId
+      });
+      const subject = await storage.createSubject(subjectData);
+      res.json(subject);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid subject data", errors: error.errors });
+      }
+      console.error("Error creating subject:", error);
+      res.status(500).json({ message: "Failed to create subject" });
+    }
+  });
+
+  // Subject update and delete routes
+  app.patch("/api/subjects/:subjectId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { subjectId } = req.params;
+      const subjectData = insertSubjectSchema.partial().parse(req.body);
+      const subject = await storage.updateSubject(subjectId, subjectData);
+      res.json(subject);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid subject data", errors: error.errors });
+      }
+      console.error("Error updating subject:", error);
+      res.status(500).json({ message: "Failed to update subject" });
+    }
+  });
+
+  app.delete("/api/subjects/:subjectId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { subjectId } = req.params;
+      await storage.deleteSubject(subjectId);
+      res.json({ message: "Subject deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting subject:", error);
+      res.status(500).json({ message: "Failed to delete subject" });
+    }
+  });
+
+  // Video routes
+  app.get("/api/videos/:videoId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const { videoId } = req.params;
+      const video = await storage.getVideo(videoId);
+      
+      if (!video) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+      
+      res.json(video);
+    } catch (error) {
+      console.error("Error fetching video:", error);
+      res.status(500).json({ message: "Failed to fetch video" });
+    }
+  });
+
+  app.get("/api/subjects/:subjectId/videos", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const { subjectId } = req.params;
+      const videos = await storage.getVideosBySubject(subjectId);
+      res.json(videos);
+    } catch (error) {
+      console.error("Error fetching videos:", error);
+      res.status(500).json({ message: "Failed to fetch videos" });
+    }
+  });
+
+  app.post("/api/subjects/:subjectId/videos", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { subjectId } = req.params;
+      const videoData = insertVideoSchema.parse({
+        ...req.body,
+        subjectId
+      });
+      const video = await storage.createVideo(videoData);
+      res.json(video);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid video data", errors: error.errors });
+      }
+      console.error("Error creating video:", error);
+      res.status(500).json({ message: "Failed to create video" });
+    }
+  });
+
+  // Video update and delete routes
+  app.patch("/api/videos/:videoId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { videoId } = req.params;
+      const videoData = insertVideoSchema.partial().parse(req.body);
+      const video = await storage.updateVideo(videoId, videoData);
+      res.json(video);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid video data", errors: error.errors });
+      }
+      console.error("Error updating video:", error);
+      res.status(500).json({ message: "Failed to update video" });
+    }
+  });
+
+  app.delete("/api/videos/:videoId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const { videoId } = req.params;
+      await storage.deleteVideo(videoId);
+      res.json({ message: "Video deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting video:", error);
+      res.status(500).json({ message: "Failed to delete video" });
+    }
+  });
+
+  // Multi-platform video routes
+  app.get("/api/multi-platform-videos", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const videos = await storage.getAllMultiPlatformVideos();
+      res.json(videos);
+    } catch (error) {
+      console.error("Error fetching multi-platform videos:", error);
+      res.status(500).json({ message: "Failed to fetch multi-platform videos" });
+    }
+  });
+
+  app.post("/api/multi-platform-videos", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const videoData = insertMultiPlatformVideoSchema.parse(req.body);
+      const video = await storage.createMultiPlatformVideo(videoData);
+      res.json(video);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid video data", errors: error.errors });
+      }
+      console.error("Error creating multi-platform video:", error);
+      res.status(500).json({ message: "Failed to create multi-platform video" });
+    }
+  });
+
+  app.get("/api/subjects/:subjectId/multi-platform-videos", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const { subjectId } = req.params;
+      const videos = await storage.getMultiPlatformVideosBySubject(subjectId);
+      res.json(videos);
+    } catch (error) {
+      console.error("Error fetching multi-platform videos:", error);
+      res.status(500).json({ message: "Failed to fetch multi-platform videos" });
+    }
+  });
+
+  app.get("/api/multi-platform-videos/:videoId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Access denied" });
+      // }
+
+      const { videoId } = req.params;
+      const video = await storage.getMultiPlatformVideo(videoId);
+      
+      if (!video) {
+        return res.status(404).json({ message: "Multi-platform video not found" });
+      }
+      
+      res.json(video);
+    } catch (error) {
+      console.error("Error fetching multi-platform video:", error);
+      res.status(500).json({ message: "Failed to fetch multi-platform video" });
+    }
+  });
+
+  // Admin routes for email whitelist management
+  app.get("/api/admin/whitelist", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const whitelistedEmails = await storage.getWhitelistedEmails();
+      res.json(whitelistedEmails);
+    } catch (error) {
+      console.error("Error fetching whitelist:", error);
+      res.status(500).json({ message: "Failed to fetch whitelist" });
+    }
+  });
+
+  app.post("/api/admin/whitelist", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Temporarily allow all authenticated users for demo
+      // if (!user || !(await storage.isEmailWhitelisted(user.email!))) {
+      //   return res.status(403).json({ message: "Admin access required" });
+      // }
+
+      const emailData = insertWhitelistedEmailSchema.parse(req.body);
+      const whitelistedEmail = await storage.addWhitelistedEmail(emailData);
+      res.json(whitelistedEmail);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid email data", errors: error.errors });
+      }
+      console.error("Error adding email to whitelist:", error);
+      res.status(500).json({ message: "Failed to add email to whitelist" });
+    }
+
+
+  // Get all PPT files with folder information for admin
+  app.get("/api/admin/ppt/all-files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const files = await storage.getAllPptFilesWithStructure();
+      res.json(files);
+    } catch (error) {
+      console.error("Error fetching all PPT files:", error);
+      res.status(500).json({ message: "Failed to fetch PPT files" });
+
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const courseData = insertPdfCourseSchema.parse(req.body);
+      const course = await storage.createPdfCourse(courseData);
+      res.json(course);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid course data", errors: error.errors });
+      }
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const subjectData = insertPdfSubjectSchema.parse(req.body);
+      const subject = await storage.createPdfSubject(subjectData);
+      res.json(subject);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid subject data", errors: error.errors });
+      }
+    }
+  });
+
+    const multer = require('multer');
+    const upload = multer({ storage: multer.memoryStorage() });
+    
+    upload.single('file')(req, res, async (err: any) => {
+      if (err) {
+        console.error("Upload error:", err);
+        return res.status(400).json({ message: "File upload failed" });
+      }
+      
+      try {
+        const userId = req.user.claims.sub;
+        const user = await storage.getUser(userId);
+        
+        if (!req.file) {
+          return res.status(400).json({ message: "No file uploaded" });
+        }
+        
+        
+        // Extract metadata from uploaded file
+        const { extractFileMetadata } = await import('./fileMetadata');
+        
+        console.log("Extracted metadata:", metadata);
+        
+        // Create file data with extracted metadata
+        const fileData = {
+          title: req.body.title,
+          description: req.body.description || null,
+          fileUrl: `uploads/${req.file.originalname}`, // In real app, this would be a proper file storage URL
+          embedUrl: `uploads/${req.file.originalname}`,
+          platform: 'upload',
+          pageCount: metadata.pageCount || 1,
+          fileSize: metadata.fileSize || req.file.size,
+          thumbnailUrl: metadata.thumbnailUrl,
+          subjectId: req.body.subjectId,
+          batchId: req.body.batchId || null,
+          courseId: req.body.courseId || null
+        };
+        
+        // Handle hierarchy levels same as regular files
+        if (fileData.subjectId === "category-direct") {
+          fileData.subjectId = null;
+          fileData.courseId = null;
+        } else if (fileData.subjectId === "sub-category-direct") {
+          fileData.subjectId = null;
+        }
+        
+        const parsedFileData = insertPdfFileSchema.parse(fileData);
+        const file = await storage.createPdfFile(parsedFileData);
+        
+        res.json(file);
+        
+      } catch (error) {
+      }
+    });
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      
+      let fileData = req.body;
+      
+      // If URL is provided and no page count, try to extract metadata
+      if (fileData.fileUrl && !fileData.pageCount) {
+        try {
+          const { extractFileMetadata } = await import('./fileMetadata');
+          if (metadata.pageCount) {
+            fileData.pageCount = metadata.pageCount;
+            console.log("Auto-detected page count:", metadata.pageCount);
+          }
+        } catch (error) {
+          console.log("Could not auto-detect metadata, using defaults");
+        }
+      }
+      
+      // Handle flexible upload levels with proper hierarchy support
+      if (fileData.subjectId === "category-direct") {
+        // Files uploaded directly to main category level
+        console.log("Processing category-direct upload with batchId:", fileData.batchId);
+        fileData = { 
+          ...fileData, 
+          subjectId: null,
+          courseId: null,
+          batchId: fileData.batchId
+        };
+      } else if (fileData.subjectId === "sub-category-direct") {
+        // Files uploaded directly to sub-category level
+        let actualBatchId = fileData.batchId;
+        if (!actualBatchId && fileData.courseId) {
+          const course = await storage.getPdfCourse(fileData.courseId);
+          actualBatchId = course?.batchId;
+        }
+        
+        fileData = { 
+          ...fileData, 
+          subjectId: null,
+          courseId: fileData.courseId,
+          batchId: actualBatchId
+        };
+      } else if (fileData.subjectId === "batch-direct" || fileData.subjectId === "categories-direct" || fileData.subjectId === "modules-direct") {
+        // Legacy support - create virtual subject for batch-level uploads
+        const virtualSubject = await storage.createPdfSubject({
+          title: `${fileData.title || 'Direct Upload'} - Category Level`,
+          description: `Auto-created section for direct category uploads`,
+          batchId: fileData.batchId
+        });
+        fileData = { 
+          ...fileData, 
+          subjectId: virtualSubject.id,
+          batchId: fileData.batchId
+        };
+      } else if (fileData.subjectId === "course-direct") {
+        // Legacy support - create virtual subject for course-level uploads
+        let actualBatchId = fileData.batchId;
+        if (!actualBatchId && fileData.courseId) {
+          const course = await storage.getPdfCourse(fileData.courseId);
+          actualBatchId = course?.batchId;
+        }
+        
+        const virtualSubject = await storage.createPdfSubject({
+          title: `${fileData.title || 'Direct Upload'} - Module Level`,
+          description: `Auto-created section for direct module uploads`,
+          courseId: fileData.courseId,
+          batchId: actualBatchId
+        });
+        fileData = { 
+          ...fileData, 
+          subjectId: virtualSubject.id,
+          batchId: actualBatchId
+        };
+      } else if (fileData.subjectId === "sections-direct") {
+        // Legacy support - create virtual subject for sections-level uploads
+        const virtualSubject = await storage.createPdfSubject({
+          title: `${fileData.title || 'Direct Upload'} - Section Level`,
+          description: `Auto-created section for direct section uploads`,
+          courseId: fileData.courseId,
+          batchId: fileData.batchId
+        });
+        fileData = { 
+          ...fileData, 
+          subjectId: virtualSubject.id,
+          batchId: fileData.batchId
+        };
+      }
+      
+      // Extract metadata if URLs are provided
+      if (fileData.fileUrl || fileData.embedUrl) {
+        try {
+          const urlToAnalyze = fileData.embedUrl || fileData.fileUrl;
+          
+          // Update file data with extracted metadata
+          if (metadata.pageCount && !fileData.pageCount) {
+            fileData.pageCount = metadata.pageCount;
+          }
+          if (metadata.fileSize) {
+            fileData.fileSize = metadata.fileSize;
+          }
+          if (!fileData.thumbnailUrl) {
+          }
+          
+        } catch (error) {
+        }
+      }
+
+      const parsedFileData = insertPdfFileSchema.parse(fileData);
+      console.log("Parsed file data:", JSON.stringify(parsedFileData, null, 2));
+      
+      // Validation: Ensure batchId is not null for category-direct uploads
+      if (req.body.subjectId === "category-direct" && !parsedFileData.batchId) {
+        console.error("ERROR: batchId is missing for category-direct upload!");
+        return res.status(400).json({ message: "batchId is required for category-direct uploads" });
+      }
+      
+      const file = await storage.createPdfFile(parsedFileData);
+      
+      res.json(file);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("Validation error:", error.errors);
+        return res.status(400).json({ message: "Invalid file data", errors: error.errors });
+      }
+      console.error("Error stack:", (error as Error).stack);
+    }
+  });
+
+  // PPT File Upload with Automatic Metadata Extraction
+  app.post("/api/ppt/upload", mockAuthMiddleware, async (req: any, res) => {
+    const multer = require('multer');
+    const upload = multer({ storage: multer.memoryStorage() });
+    
+    upload.single('file')(req, res, async (err: any) => {
+      if (err) {
+        console.error("Upload error:", err);
+        return res.status(400).json({ message: "File upload failed" });
+      }
+      
+      try {
+        const userId = req.user.claims.sub;
+        const user = await storage.getUser(userId);
+        
+        if (!req.file) {
+          return res.status(400).json({ message: "No file uploaded" });
+        }
+        
+        console.log("Processing PPT upload:", req.file.originalname);
+        
+        // Extract metadata from uploaded file (PPTs will get basic metadata)
+        const { extractFileMetadata } = await import('./fileMetadata');
+        const metadata = await extractFileMetadata(req.file.buffer, 'upload', 'ppt');
+        
+        console.log("Extracted PPT metadata:", metadata);
+        
+        // Create file data with extracted metadata
+        const fileData = {
+          title: req.body.title,
+          description: req.body.description || null,
+          fileUrl: `uploads/${req.file.originalname}`,
+          embedUrl: `uploads/${req.file.originalname}`,
+          platform: 'upload',
+          slideCount: metadata.slideCount || 1,
+          fileSize: metadata.fileSize || req.file.size,
+          thumbnailUrl: metadata.thumbnailUrl,
+          subjectId: req.body.subjectId,
+          batchId: req.body.batchId || null,
+          courseId: req.body.courseId || null
+        };
+        
+        // Handle hierarchy levels same as regular files
+        if (fileData.subjectId === "category-direct") {
+          fileData.subjectId = null;
+          fileData.courseId = null;
+        } else if (fileData.subjectId === "sub-category-direct") {
+          fileData.subjectId = null;
+        }
+        
+        const parsedFileData = insertPptFileSchema.parse(fileData);
+        const file = await storage.createPptFile(parsedFileData);
+        
+        console.log("Created PPT file with auto-detected metadata:", file);
+        res.json(file);
+        
+      } catch (error) {
+        console.error("Error processing PPT upload:", error);
+        res.status(500).json({ message: "Failed to process PPT upload" });
+      }
+    });
+  });
+
+  // PPT Management Routes
+  // Get all PPT files with folder information for admin
+  app.get("/api/admin/ppt/all-files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const files = await storage.getAllPptFilesWithFolders();
+      res.json(files);
+    } catch (error) {
+      console.error("Error fetching all PPT files:", error);
+      res.status(500).json({ message: "Failed to fetch PPT files" });
+    }
+  });
+
+  // Get PPT files by batch ID (category level)
+  app.get("/api/ppt/batches/:batchId/files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const { batchId } = req.params;
+      const files = await storage.getPptFilesByBatchId(batchId);
+      res.json(files);
+    } catch (error) {
+      console.error("Error fetching PPT files by batch:", error);
+      res.status(500).json({ message: "Failed to fetch PPT files" });
+    }
+  });
+
+  // Get PPT files by course ID (sub-category level)
+  app.get("/api/ppt/courses/:courseId/files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const { courseId } = req.params;
+      const files = await storage.getPptFilesByCourseId(courseId);
+      res.json(files);
+    } catch (error) {
+      console.error("Error fetching PPT files by course:", error);
+      res.status(500).json({ message: "Failed to fetch PPT files" });
+    }
+  });
+
+  // Get PPT files by subject ID (sub-sub-category level)
+  app.get("/api/ppt/subjects/:subjectId/files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const { subjectId } = req.params;
+      const files = await storage.getPptFilesBySubjectId(subjectId);
+      res.json(files);
+    } catch (error) {
+      console.error("Error fetching PPT files by subject:", error);
+      res.status(500).json({ message: "Failed to fetch PPT files" });
+    }
+  });
+
+  // Create PPT file with flexible hierarchy support
+  app.post("/api/ppt/files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      console.log("Creating PPT file with data:", JSON.stringify(req.body, null, 2));
+      
+      let fileData = req.body;
+      
+      // Handle flexible upload levels with proper hierarchy support
+      if (fileData.subjectId === "category-direct") {
+        // Files uploaded directly to main category level
+        console.log("Processing category-direct upload with batchId:", fileData.batchId);
+        fileData = { 
+          ...fileData, 
+          subjectId: null,
+          courseId: null,
+          batchId: fileData.batchId
+        };
+      } else if (fileData.subjectId === "course-direct") {
+        // Files uploaded directly to sub-category level
+        let actualBatchId = fileData.batchId;
+        if (!actualBatchId && fileData.courseId) {
+          const course = await storage.getPptCourse(fileData.courseId);
+          actualBatchId = course?.batchId;
+        }
+        fileData = { 
+          ...fileData, 
+          subjectId: null,
+          courseId: fileData.courseId,
+          batchId: actualBatchId
+        };
+      } else if (fileData.subjectId === "batch-direct" || fileData.subjectId === "categories-direct" || fileData.subjectId === "modules-direct") {
+        // Legacy support - create virtual subject for batch-level uploads
+        const virtualSubject = await storage.createPptSubject({
+          title: `${fileData.title || 'Direct Upload'} - Category Level`,
+          description: `Auto-created section for direct category uploads`,
+          batchId: fileData.batchId
+        });
+        fileData = { 
+          ...fileData, 
+          subjectId: virtualSubject.id,
+          batchId: fileData.batchId
+        };
+      } else if (fileData.subjectId === "sections-direct") {
+        // Legacy support - create virtual subject for sections-level uploads
+        const virtualSubject = await storage.createPptSubject({
+          title: `${fileData.title || 'Direct Upload'} - Section Level`,
+          description: `Auto-created section for direct section uploads`,
+          courseId: fileData.courseId,
+          batchId: fileData.batchId
+        });
+        fileData = { 
+          ...fileData, 
+          subjectId: virtualSubject.id,
+          batchId: fileData.batchId
+        };
+      }
+      
+      const parsedFileData = insertPptFileSchema.parse(fileData);
+      console.log("Parsed file data:", JSON.stringify(parsedFileData, null, 2));
+      
+      // Validation: Ensure batchId is not null for category-direct uploads
+      if (req.body.subjectId === "category-direct" && !parsedFileData.batchId) {
+        console.error("ERROR: batchId is missing for category-direct upload!");
+        return res.status(400).json({ message: "batchId is required for category-direct uploads" });
+      }
+      
+      const file = await storage.createPptFile(parsedFileData);
+      console.log("Created PPT file:", JSON.stringify(file, null, 2));
+      
+      res.json(file);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("Validation error:", error.errors);
+        return res.status(400).json({ message: "Invalid file data", errors: error.errors });
+      }
+      console.error("Error creating PPT file:", error);
+      console.error("Error stack:", (error as Error).stack);
+      res.status(500).json({ message: "Failed to create PPT file", error: (error as Error).message });
+    }
+  });
+
+  // Delete PPT file
+  app.delete("/api/ppt/files/:fileId", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const { fileId } = req.params;
+      await storage.deletePptFile(fileId);
+      res.json({ message: "PPT file deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting PPT file:", error);
+      res.status(500).json({ message: "Failed to delete PPT file" });
+    }
+  });
+
+  // PPT Batches
+  app.get("/api/ppt/batches", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const batches = await storage.getPptBatches();
+      res.json(batches);
+    } catch (error) {
+      console.error("Error fetching PPT batches:", error);
+      res.status(500).json({ message: "Failed to fetch PPT batches" });
+    }
+  });
+
+  app.get("/api/ppt/batches/:batchId/courses", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const { batchId } = req.params;
+      const courses = await storage.getPptCoursesByBatch(batchId);
+      res.json(courses);
+    } catch (error) {
+      console.error("Error fetching PPT courses:", error);
+      res.status(500).json({ message: "Failed to fetch PPT courses" });
+    }
+  });
+
+  app.get("/api/ppt/courses/:courseId/subjects", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const { courseId } = req.params;
+      const subjects = await storage.getPptSubjectsByCourse(courseId);
+      res.json(subjects);
+    } catch (error) {
+      console.error("Error fetching PPT subjects:", error);
+      res.status(500).json({ message: "Failed to fetch PPT subjects" });
+    }
+  });
+
+  app.get("/api/ppt/subjects/:subjectId/files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const { subjectId } = req.params;
+      const files = await storage.getPptFilesBySubject(subjectId);
+      res.json(files);
+    } catch (error) {
+      console.error("Error fetching PPT files:", error);
+      res.status(500).json({ message: "Failed to fetch PPT files" });
+    }
+  });
+
+  // PPT CREATE routes
+  app.post("/api/ppt/batches", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const batchData = insertPptBatchSchema.parse(req.body);
+      const batch = await storage.createPptBatch(batchData);
+      res.json(batch);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid batch data", errors: error.errors });
+      }
+      console.error("Error creating PPT batch:", error);
+      res.status(500).json({ message: "Failed to create PPT batch" });
+    }
+  });
+
+  app.post("/api/ppt/courses", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const courseData = insertPptCourseSchema.parse(req.body);
+      const course = await storage.createPptCourse(courseData);
+      res.json(course);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid course data", errors: error.errors });
+      }
+      console.error("Error creating PPT course:", error);
+      res.status(500).json({ message: "Failed to create PPT course" });
+    }
+  });
+
+  app.post("/api/ppt/subjects", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const subjectData = insertPptSubjectSchema.parse(req.body);
+      const subject = await storage.createPptSubject(subjectData);
+      res.json(subject);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid subject data", errors: error.errors });
+      }
+      console.error("Error creating PPT subject:", error);
+      res.status(500).json({ message: "Failed to create PPT subject" });
+    }
+  });
+
+  app.post("/api/ppt/files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      console.log("Creating PPT file with data:", JSON.stringify(req.body, null, 2));
+      
+      let fileData = req.body;
+      
+      if (fileData.subjectId === "category-direct") {
+        console.log("Processing category-direct upload with batchId:", fileData.batchId);
+        fileData = { 
+          ...fileData, 
+          subjectId: null,
+          courseId: null,
+          batchId: fileData.batchId
+        };
+      } else if (fileData.subjectId === "sub-category-direct") {
+        let actualBatchId = fileData.batchId;
+        if (!actualBatchId && fileData.courseId) {
+          const course = await storage.getPptCourse(fileData.courseId);
+          actualBatchId = course?.batchId;
+        }
+        
+        fileData = { 
+          ...fileData, 
+          subjectId: null,
+          courseId: fileData.courseId,
+          batchId: actualBatchId
+        };
+      }
+      
+      // Extract metadata if URLs are provided
+      if (fileData.fileUrl || fileData.embedUrl) {
+        try {
+          const urlToAnalyze = fileData.embedUrl || fileData.fileUrl;
+          const metadata = await extractFileMetadata(urlToAnalyze, fileData.platform, 'ppt');
+          
+          // Update file data with extracted metadata
+          if (metadata.slideCount && !fileData.slideCount) {
+            fileData.slideCount = metadata.slideCount;
+          }
+          if (metadata.fileSize) {
+            fileData.fileSize = metadata.fileSize;
+          }
+          if (!fileData.thumbnailUrl) {
+            fileData.thumbnailUrl = generateThumbnailUrl(urlToAnalyze, fileData.platform, 'ppt');
+          }
+          
+          console.log("Extracted PPT metadata:", metadata);
+        } catch (error) {
+          console.warn("Could not extract PPT metadata:", error);
+        }
+      }
+      
+      const parsedFileData = insertPptFileSchema.parse(fileData);
+      console.log("Parsed PPT file data:", JSON.stringify(parsedFileData, null, 2));
+      
+      const file = await storage.createPptFile(parsedFileData);
+      console.log("Created PPT file:", JSON.stringify(file, null, 2));
+      
+      res.json(file);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid file data", errors: error.errors });
+      }
+      console.error("Error creating PPT file:", error);
+      res.status(500).json({ message: "Failed to create PPT file" });
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const batchData = insertPdfBatchSchema.partial().parse(req.body);
+      const batch = await storage.updatePdfBatch(id, batchData);
+      res.json(batch);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid batch data", errors: error.errors });
+      }
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePdfBatch(id);
+    } catch (error) {
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const courseData = insertPdfCourseSchema.partial().parse(req.body);
+      const course = await storage.updatePdfCourse(id, courseData);
+      res.json(course);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid course data", errors: error.errors });
+      }
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePdfCourse(id);
+    } catch (error) {
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const subjectData = insertPdfSubjectSchema.partial().parse(req.body);
+      const subject = await storage.updatePdfSubject(id, subjectData);
+      res.json(subject);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid subject data", errors: error.errors });
+      }
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePdfSubject(id);
+    } catch (error) {
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const fileData = insertPdfFileSchema.partial().parse(req.body);
+      const file = await storage.updatePdfFile(id, fileData);
+      res.json(file);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid file data", errors: error.errors });
+      }
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const file = await storage.getPdfFile(id);
+      
+      if (!file) {
+      }
+      
+      res.json(file);
+    } catch (error) {
+    }
+  });
+
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePdfFile(id);
+    } catch (error) {
+    }
+  });
+
+  // PPT PATCH/DELETE routes
+  app.patch("/api/ppt/batches/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const batchData = insertPptBatchSchema.partial().parse(req.body);
+      const batch = await storage.updatePptBatch(id, batchData);
+      res.json(batch);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid batch data", errors: error.errors });
+      }
+      console.error("Error updating PPT batch:", error);
+      res.status(500).json({ message: "Failed to update PPT batch" });
+    }
+  });
+
+  app.delete("/api/ppt/batches/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePptBatch(id);
+      res.json({ message: "PPT batch deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting PPT batch:", error);
+      res.status(500).json({ message: "Failed to delete PPT batch" });
+    }
+  });
+
+  app.patch("/api/ppt/courses/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const courseData = insertPptCourseSchema.partial().parse(req.body);
+      const course = await storage.updatePptCourse(id, courseData);
+      res.json(course);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid course data", errors: error.errors });
+      }
+      console.error("Error updating PPT course:", error);
+      res.status(500).json({ message: "Failed to update PPT course" });
+    }
+  });
+
+  app.delete("/api/ppt/courses/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePptCourse(id);
+      res.json({ message: "PPT course deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting PPT course:", error);
+      res.status(500).json({ message: "Failed to delete PPT course" });
+    }
+  });
+
+  app.patch("/api/ppt/subjects/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const subjectData = insertPptSubjectSchema.partial().parse(req.body);
+      const subject = await storage.updatePptSubject(id, subjectData);
+      res.json(subject);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid subject data", errors: error.errors });
+      }
+      console.error("Error updating PPT subject:", error);
+      res.status(500).json({ message: "Failed to update PPT subject" });
+    }
+  });
+
+  app.delete("/api/ppt/subjects/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePptSubject(id);
+      res.json({ message: "PPT subject deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting PPT subject:", error);
+      res.status(500).json({ message: "Failed to delete PPT subject" });
+    }
+  });
+
+  app.patch("/api/ppt/files/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      const fileData = insertPptFileSchema.partial().parse(req.body);
+      const file = await storage.updatePptFile(id, fileData);
+      res.json(file);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid file data", errors: error.errors });
+      }
+      console.error("Error updating PPT file:", error);
+      res.status(500).json({ message: "Failed to update PPT file" });
+    }
+  });
+
+  app.delete("/api/ppt/files/:id", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const { id } = req.params;
+      await storage.deletePptFile(id);
+      res.json({ message: "PPT file deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting PPT file:", error);
+      res.status(500).json({ message: "Failed to delete PPT file" });
+    }
+  });
+
+  // File Preview API endpoints - Get all files with folder structure
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const allFiles = await storage.getAllPdfFilesWithStructure();
+      res.json(allFiles);
+    } catch (error) {
+    }
+  });
+
+  app.get("/api/admin/ppt/all-files", mockAuthMiddleware, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      const allFiles = await storage.getAllPptFilesWithStructure();
+      res.json(allFiles);
+    } catch (error) {
+      console.error("Error fetching all PPT files:", error);
+      res.status(500).json({ message: "Failed to fetch PPT files" });
+    }
+  });
+
+  // File upload endpoint with actual file handling
+    try {
+      // This would need multer middleware for file uploads
+      // For now, we'll return success for the interface
+      const { title, description } = req.body;
+      
+      // Auto-generate title if not provided or empty
+      console.log('Upload request:', { originalTitle: title, finalTitle, description });
+
+      const userId = 'test-user-123'; // Mock user ID for testing
+      
+        title: finalTitle,
+        description: description || '',
+        embedUrl: null,
+        platform: 'upload',
+        fileSize: 1024000, // 1MB placeholder
+        batchId: null,
+        courseId: null,
+        subjectId: null,
+      };
+
+    } catch (error) {
+    }
+  });
+
+    try {
+      const { title, description, batchId, courseId, subjectId } = req.body;
+      
+      if (!title) {
+        return res.status(400).json({ message: "Title is required" });
+      }
+
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+        title,
+        description: description || '',
+        fileUrl: '', // For now, we'll store as empty - file upload can be added later
+        embedUrl: null,
+        platform: 'upload',
+        batchId: batchId || null,
+        courseId: courseId || null,
+        subjectId: subjectId || null,
+      };
+
+    } catch (error) {
+    }
+  });
+
+    try {
+      const { title, description, fileUrl, platform, batchId, courseId, subjectId } = req.body;
+      
+      if (!title || !fileUrl) {
+        return res.status(400).json({ message: "Title and URL are required" });
+      }
+
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+        title,
+        description: description || '',
+        fileUrl,
+        embedUrl: fileUrl,
+        platform: platform || 'direct_url',
+        batchId: batchId || null,
+        courseId: courseId || null,
+        subjectId: subjectId || null,
+      };
+
+    } catch (error) {
+    }
+  });
+
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      await storage.deletePdfFile(id);
+    } catch (error) {
+    }
+  });
+
+    try {
+      const { url } = req.query;
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ message: "URL parameter is required" });
+      }
+
+      // For Canva URLs, transform them to proper embed format
+      let finalUrl = url;
+      if (url.includes('canva.com/design/')) {
+        // Convert Canva design URLs to direct view format
+        finalUrl = url.replace('/design/', '/view/');
+        // Add embed parameter if not present
+        if (!finalUrl.includes('embed')) {
+          finalUrl += finalUrl.includes('?') ? '&embed' : '?embed';
+        }
+      }
+
+      // Return the transformed URL for client-side iframe
+      res.json({ proxyUrl: finalUrl, success: true });
+    } catch (error) {
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
